@@ -61,7 +61,7 @@ jobs:
             rusak="${rusak}• Halaman depan — HTTP ${kode}"$'\n'
           fi
 
-          if ! kode=$(periksa "https://antriyuk.id/UJI-REPO-PUBLIK" "Antri Yuk"); then
+          if ! kode=$(periksa "https://antriyuk.id/masuk" "Antri Yuk"); then
             rusak="${rusak}• Halaman masuk — HTTP ${kode}"$'\n'
           fi
 
