@@ -18,6 +18,11 @@ on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
+    inputs:
+      uji_kabar:
+        description: 'Kirim pesan percobaan ke Telegram, lalu berhenti tanpa memeriksa situs'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,8 +36,47 @@ jobs:
           TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT: ${{ secrets.TELEGRAM_CHAT }}
           JALAN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          UJI: ${{ inputs.uji_kabar }}
         run: |
           set -u
+
+          # 🚨 SATU fungsi pengirim, dipakai peringatan sungguhan DAN pesan
+          # percobaan. Tombol uji yang punya jalur kirimnya sendiri tidak
+          # membuktikan apa pun tentang jalur yang sebenarnya dipakai — ia cuma
+          # membuktikan dirinya sendiri, lalu memberi rasa aman yang keliru.
+          #
+          # Jawaban Telegram WAJIB diperiksa. Tanpa ini, skrip tetap mencetak
+          # "terkirim" walau tokennya salah atau botnya belum pernah disapa —
+          # dan kita baru sadar pemantauannya bisu pada malam pertama situsnya
+          # benar-benar mati.
+          kabari() {
+            jawab=$(curl -sS --max-time 20 \
+              "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+              -d "chat_id=${CHAT}" \
+              --data-urlencode "text=$1")
+            if printf '%s' "$jawab" | grep -q '"ok":true'; then
+              echo "Terkirim ke Telegram."
+              return 0
+            fi
+            echo "GAGAL mengirim. Jawaban Telegram: $jawab"
+            return 1
+          }
+
+          # Jalur uji: dijalankan tangan dari tab Actions, centang "uji_kabar".
+          # Ada supaya jalur kabarnya bisa dibuktikan TANPA menunggu situsnya
+          # mati dan tanpa merusak apa pun untuk sementara.
+          # ${UJI:-false} — pada jalannya jadwal, inputs kosong, dan `:-` membaca
+          # string kosong sama seperti tak disetel.
+          if [ "${UJI:-false}" = "true" ]; then
+            pesan=$(printf '%s\n' \
+              "✅ Pesan percobaan dari pemantau antriyuk.id" \
+              "" \
+              "Jalur kabarnya jalan. Kalau situsnya mati, peringatannya masuk ke sini." \
+              "" \
+              "Rincian: ${JALAN}")
+            kabari "$pesan"
+            exit $?
+          fi
 
           # Memeriksa DUA hal sekaligus: peladennya menjawab, DAN halamannya
           # benar-benar tergambar. Memeriksa kode 200 saja tidak cukup — Next.js
@@ -85,19 +129,6 @@ jobs:
             "" \
             "Rincian: ${JALAN}")
 
-          # 🚨 Jawaban Telegram WAJIB diperiksa. Tanpa ini, skrip tetap
-          # mencetak "terkirim" walau tokennya salah atau botnya dikeluarkan dari
-          # grup — dan kita baru sadar pemantauannya bisu pada malam pertama
-          # situsnya benar-benar mati.
-          jawab=$(curl -sS --max-time 20 \
-            "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-            -d "chat_id=${CHAT}" \
-            --data-urlencode "text=${pesan}")
-
-          if printf '%s' "$jawab" | grep -q '"ok":true'; then
-            echo "Peringatan terkirim ke Telegram."
-          else
-            echo "GAGAL mengirim peringatan. Jawaban Telegram: $jawab"
-          fi
+          kabari "${pesan}" || true
 
           exit 1
