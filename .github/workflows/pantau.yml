@@ -5,14 +5,21 @@ name: Pantau antriyuk.id
 # pernah sempat mengabari — diam persis pada saat ia paling dibutuhkan.
 #
 # 🚨 GitHub MENONAKTIFKAN jadwal otomatis kalau repo ini 60 hari tanpa aktivitas.
-# Kalau suatu hari situs pernah mati tapi tidak ada peringatan yang datang,
-# periksa dulu tab Actions — kemungkinan besar jadwalnya yang dimatikan, bukan
-# pemantaunya yang salah.
+# Itu BENAR-BENAR TERJADI 5 Nov 2026 (repo diam 61 hari) dan pemantauannya
+# berhenti tanpa satu pun peringatan. Sejak itu ada langkah "denyut" di bawah
+# yang mendorong satu commit tiap 21 hari supaya jamnya tidak pernah sampai 60.
 #
-# 🚨 Jadwal GitHub tidak tepat waktu. '*/5' berarti "kira-kira tiap 5 menit",
-# dan waktu GitHub sedang sibuk bisa mundur 10–15 menit. Itu tetap jauh lebih
-# baik daripada baru tahu besok pagi dari tenant yang sudah kecewa, tapi jangan
-# menganggapnya jaminan.
+# 🚨 Denyut itu usaha terbaik, BUKAN jaminan — "aktivitas" tidak didefinisikan
+# GitHub secara tertulis. Jaring pengamannya ada di luar GitHub: jaga-pemantau.sh
+# di VPS bertanya tiap jam "workflow ini masih active? jalan terakhirnya kapan?"
+# dan mengabari japri Telegram kalau tidak. Dua arah: pemantau ini mengawasi
+# situs, VPS mengawasi pemantau ini.
+#
+# 🚨 Jadwal GitHub TIDAK menepati '*/5'. Terukur 5 Nov 2026 dari seluruh riwayat
+# jalan: 12-16 Sep rata-rata 89 jalan/hari (jarak tengah 15,6 menit), lalu sejak
+# 17 Sep cuma 5,4 jalan/hari — jarak tengah 4,4 jam, terpanjang 10 jam, dan dari
+# 259 jarak TIDAK ADA satu pun di bawah satu jam. Jadi yang dijanjikan berkas ini
+# jujurnya "tahu dalam beberapa jam", bukan "tahu dalam 5 menit".
 
 on:
   schedule:
@@ -23,9 +30,18 @@ on:
         description: 'Kirim pesan percobaan ke Telegram, lalu berhenti tanpa memeriksa situs'
         type: boolean
         default: false
+      paksa_denyut:
+        description: 'Dorong commit denyut sekarang juga, tanpa menunggu 21 hari'
+        type: boolean
+        default: false
 
+# 🚨 `write` dibutuhkan langkah denyut di bawah untuk mendorong commit-nya.
+# Tidak menambah permukaan serang: pemicunya cuma `schedule` dan
+# `workflow_dispatch`, dan workflow_dispatch sudah menuntut hak tulis ke repo.
+# Yang TIDAK boleh ditambahkan tetap `pull_request` — di situlah orang asing
+# bisa menjalankan workflow lewat fork, dengan token yang sekarang bisa menulis.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   periksa:
@@ -132,3 +148,82 @@ jobs:
           kabari "${pesan}" || true
 
           exit 1
+
+      # 🚨 DENYUT — menjaga GitHub menganggap repo ini hidup. Lahir 5 Nov 2026,
+      # hari jadwalnya dimatikan sesudah repo tepat 61 hari tanpa dorongan.
+      #
+      # `if: always()` dan BUKAN kebetulan: langkah di atas keluar 1 waktu
+      # situsnya mati, dan kalau denyut ini ikut dilewati maka justru selama
+      # gangguan panjang — saat pemantauan paling dibutuhkan — jamnya terus
+      # berjalan menuju 60. Denyut tidak boleh bergantung pada sehatnya yang
+      # dipantau. Letaknya SESUDAH pemeriksa supaya peringatan situs mati tidak
+      # pernah tertunda oleh urusan rumah tangga repo.
+      #
+      # Lewat API Contents, tanpa actions/checkout: satu permintaan, bukan
+      # menyalin seluruh repo pada tiap jalan.
+      - name: Denyut — jaga jadwalnya tidak dimatikan GitHub
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PAKSA: ${{ inputs.paksa_denyut }}
+          # 21, bukan 59. Marginnya sengaja lebar: pada 5,4 jalan/hari yang
+          # terukur, masih ada ratusan kesempatan sebelum hari ke-60 — dan
+          # kalau frekuensinya turun lagi, jaraknya tetap aman.
+          BATAS_HARI: 21
+        run: |
+          set -u
+
+          ambil() {
+            curl -sS --max-time 20 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" "$@"
+          }
+
+          didorong=$(ambil "https://api.github.com/repos/${REPO}" | jq -r '.pushed_at // empty')
+          if [ -z "$didorong" ]; then
+            echo "Tidak bisa membaca pushed_at — denyut dilewati kali ini."
+            exit 0
+          fi
+
+          umur=$(( ( $(date -u +%s) - $(date -u -d "$didorong" +%s) ) / 86400 ))
+          echo "Dorongan terakhir ${didorong} — ${umur} hari lalu (batas ${BATAS_HARI}, PAKSA=${PAKSA:-false})."
+
+          if [ "${PAKSA:-false}" != "true" ] && [ "$umur" -lt "$BATAS_HARI" ]; then
+            echo "Belum perlu berdenyut."
+            exit 0
+          fi
+
+          # Isinya sengaja memuat alasannya. Orang yang membuka berkas ini
+          # setahun lagi harus langsung tahu kenapa ada commit berkala di repo
+          # yang tidak pernah diubah, dan tidak menghapusnya karena mengira
+          # sampah.
+          teks=$(printf '%s\n' \
+            "Berkas ini tidak dibaca program mana pun." \
+            "" \
+            "Ia ada supaya repo ini tidak pernah 60 hari tanpa aktivitas —" \
+            "karena pada hari ke-60 GitHub mematikan jadwal pemantau antriyuk.id," \
+            "dan itu sudah pernah terjadi (5 Nov 2026, repo diam 61 hari)." \
+            "" \
+            "Ditulis otomatis oleh .github/workflows/pantau.yml." \
+            "" \
+            "Denyut terakhir: $(date -u '+%Y-%m-%d %H:%M:%S UTC')")
+
+          sha=$(ambil "https://api.github.com/repos/${REPO}/contents/denyut.txt" | jq -r '.sha // empty')
+
+          badan=$(jq -n \
+            --arg pesan "Denyut: jaga jadwal pemantau tetap hidup ($(date -u +%F))" \
+            --arg isi "$(printf '%s' "$teks" | base64 -w0)" \
+            --arg sha "$sha" \
+            '{message:$pesan, content:$isi} + (if $sha == "" then {} else {sha:$sha} end)')
+
+          jawab=$(ambil -X PUT "https://api.github.com/repos/${REPO}/contents/denyut.txt" -d "$badan")
+
+          # Jawaban WAJIB diperiksa. Denyut yang gagal diam-diam adalah persis
+          # bentuk kegagalan yang berkas ini ada untuk mencegahnya.
+          if printf '%s' "$jawab" | jq -e '.commit.sha' >/dev/null 2>&1; then
+            echo "Denyut terdorong: $(printf '%s' "$jawab" | jq -r '.commit.sha')"
+          else
+            echo "DENYUT GAGAL: $(printf '%s' "$jawab" | head -c 300)"
+            exit 1
+          fi
