@@ -1,0 +1,9 @@
+Berkas ini tidak dibaca program mana pun.
+
+Ia ada supaya repo ini tidak pernah 60 hari tanpa aktivitas —
+karena pada hari ke-60 GitHub mematikan jadwal pemantau antriyuk.id,
+dan itu sudah pernah terjadi (5 Nov 2026, repo diam 61 hari).
+
+Ditulis otomatis oleh .github/workflows/pantau.yml.
+
+Denyut terakhir: 2026-11-05 03:54:06 UTC
